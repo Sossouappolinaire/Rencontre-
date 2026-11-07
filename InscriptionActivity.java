@@ -9,7 +9,9 @@ import org.json.*;
 import java.util.*;
 
 public class InscriptionActivity extends Activity {
-    EditText nom, prenom, email, wa;
+    EditText nom, prenom, email, wa, age, profession, desc;
+    Spinner taille;
+    static final int TAILLE_MIN = 100, TAILLE_MAX = 230, TAILLE_PAS = 1; // en cm
     Spinner pays, sexe, cherche;
     ImageView img;
     String photo;
@@ -17,30 +19,36 @@ public class InscriptionActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        U.fenetre(this);
         ScrollView sv = new ScrollView(this);
         LinearLayout l = U.col(this);
         sv.addView(l);
         setContentView(sv);
-        l.addView(U.tv(this, "Créer mon compte", 22, true));
+        l.addView(U.header(this));
+        l.addView(U.tv(this, "Créer mon compte", 20, true));
 
         img = new ImageView(this);
         img.setImageResource(android.R.drawable.ic_menu_camera);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        l.addView(img, new LinearLayout.LayoutParams(U.dp(this, 120), U.dp(this, 120)));
+        U.rond(img);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(U.dp(this, 120), U.dp(this, 120));
+        ip.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        ip.setMargins(0, U.dp(this, 8), 0, U.dp(this, 8));
+        l.addView(img, ip);
         Button bp = U.btn(this, "Ma photo de profil (réelle, pas d'IA)");
         bp.setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_GET_CONTENT);
             i.setType("image/*");
             startActivityForResult(i, 1);
         });
-        l.addView(bp);
+        U.add(l, bp);
 
         nom = U.et(this, "Nom");
         prenom = U.et(this, "Prénom");
         email = U.et(this, "E-mail");
         wa = U.et(this, "Numéro WhatsApp avec indicatif (ex : 22990000000)");
         wa.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
-        l.addView(nom); l.addView(prenom); l.addView(email);
+        U.add(l, nom); U.add(l, prenom); U.add(l, email);
 
         for (String c : Locale.getISOCountries()) {
             String n = new Locale("", c).getDisplayCountry(Locale.FRENCH);
@@ -52,8 +60,9 @@ public class InscriptionActivity extends Activity {
         pays = new Spinner(this);
         pays.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items));
         l.addView(U.tv(this, "Pays", 14, true));
-        l.addView(pays);
-        l.addView(wa);
+        U.champ(pays);
+        U.add(l, pays);
+        U.add(l, wa);
 
         sexe = new Spinner(this);
         sexe.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
@@ -62,24 +71,58 @@ public class InscriptionActivity extends Activity {
         cherche.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
                 new String[]{"Je cherche un homme", "Je cherche une femme"}));
         cherche.setSelection(1);
-        l.addView(sexe);
-        l.addView(cherche);
+        U.champ(sexe); U.champ(cherche);
+        U.add(l, sexe);
+        U.add(l, cherche);
 
-        Button ok = U.btn(this, "S'inscrire");
+        age = U.et(this, "Âge (18 ans minimum)");
+        age.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        age.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(2)});
+        ArrayList<String> tailles = new ArrayList<>();
+        for (int cm = TAILLE_MIN; cm <= TAILLE_MAX; cm += TAILLE_PAS)
+            tailles.add((cm / 100) + "m" + (cm % 100 == 0 ? "" : String.format(Locale.US, "%02d", cm % 100)));
+        taille = new Spinner(this);
+        taille.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, tailles));
+        taille.setSelection((170 - TAILLE_MIN) / TAILLE_PAS);
+        U.champ(taille);
+        profession = U.et(this, "Profession");
+        profession.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        desc = U.et(this, "Décris la personne que tu cherches : ses qualités, ses valeurs…");
+        desc.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        desc.setMinLines(4);
+        desc.setGravity(android.view.Gravity.TOP);
+        desc.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(500)});
+        l.addView(U.tv(this, "À propos de toi", 14, true));
+        U.add(l, age);
+        l.addView(U.tv(this, "Taille", 14, true));
+        U.add(l, taille);
+        U.add(l, profession);
+        l.addView(U.tv(this, "Les qualités que tu recherches", 14, true));
+        U.add(l, desc);
+
+        U.PBtn ok = U.inscription(this, "S'inscrire");
         ok.setOnClickListener(v -> envoyer(ok));
-        l.addView(ok);
-        TextView adm = U.tv(this, "\nEspace administrateur", 13, false);
-        adm.setOnClickListener(v -> startActivity(new Intent(this, AdminActivity.class)));
-        l.addView(adm);
+        U.add(l, ok);
+        U.PBtn deja = U.pulse(this, "J'ai déjà un compte");
+        deja.setOnClickListener(v -> startActivity(new Intent(this, ConnexionActivity.class)));
+        U.add(l, deja);
     }
 
-    void envoyer(Button ok) {
+    static int nombre(EditText e) {
+        try { return Integer.parseInt(e.getText().toString().trim()); } catch (Exception x) { return 0; }
+    }
+
+    void envoyer(U.PBtn ok) {
         String num = wa.getText().toString().replaceAll("[^0-9]", "");
         if (photo == null || nom.getText().toString().trim().isEmpty() || prenom.getText().toString().trim().isEmpty()
                 || !email.getText().toString().contains("@") || num.length() < 8) {
             U.toast(this, "Remplis tous les champs et ajoute ta photo.");
             return;
         }
+        int a = nombre(age), t = TAILLE_MIN + taille.getSelectedItemPosition() * TAILLE_PAS;
+        if (a < 18 || a > 99) { U.toast(this, "L'inscription est réservée aux personnes de 18 ans et plus."); return; }
+        if (profession.getText().toString().trim().isEmpty()) { U.toast(this, "Indique ta profession."); return; }
+        if (desc.getText().toString().trim().length() < 10) { U.toast(this, "Décris en quelques mots les qualités que tu recherches."); return; }
         String[] p = L.get(pays.getSelectedItemPosition());
         JSONObject o = new JSONObject();
         try {
@@ -92,21 +135,28 @@ public class InscriptionActivity extends Activity {
             o.put("sexe", sexe.getSelectedItemPosition() == 0 ? "homme" : "femme");
             o.put("cherche", cherche.getSelectedItemPosition() == 0 ? "homme" : "femme");
             o.put("photo_url", photo);
+            o.put("age", a);
+            o.put("taille_cm", t);
+            o.put("profession", profession.getText().toString().trim());
+            o.put("description", desc.getText().toString().trim());
         } catch (JSONException e) { return; }
-        ok.setEnabled(false);
+        ok.start("Inscription");
         Api.bg(() -> {
             try {
                 JSONArray r = new JSONArray(Api.post("/rest/v1/membres?select=id", o.toString()));
                 String nid = r.getJSONObject(0).getString("id");
                 U.setId(this, nid);
-                try { Api.call("POST", "/functions/v1/envoyer-code", "{\"membre_id\":\"" + nid + "\"}", null); } catch (Exception ignore) { }
-                runOnUiThread(() -> {
+                boolean codePart = true;
+                try { Api.call("POST", "/functions/v1/envoyer-code", "{\"membre_id\":\"" + nid + "\"}", null); }
+                catch (Exception ex) { codePart = false; }
+                if (!codePart) U.toast(this, "Compte créé, mais l'e-mail n'a pas pu partir. Appuie sur « Renvoyer le code ».");
+                runOnUiThread(() -> ok.succes(() -> {
                     startActivity(new Intent(this, MainActivity.class));
                     finish();
-                });
+                }));
             } catch (Exception e) {
                 U.toast(this, "Erreur : " + e.getMessage());
-                runOnUiThread(() -> ok.setEnabled(true));
+                runOnUiThread(ok::stop);
             }
         });
     }

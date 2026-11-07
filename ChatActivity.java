@@ -23,15 +23,16 @@ public class ChatActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        U.fenetre(this);
         cid = getIntent().getStringExtra("cid");
         ro = getIntent().getBooleanExtra("ro", false);
         me = ro ? null : U.id(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFFECE5DD);
+        root.setBackgroundColor(0xFF1E070D);
 
         LinearLayout top = new LinearLayout(this);
-        top.setBackgroundColor(0xFF075E54);
+        top.setBackgroundColor(0xFF5A0F24);
         top.setGravity(Gravity.CENTER_VERTICAL);
         int p = U.dp(this, 10);
         top.setPadding(p, p, p, p);
@@ -69,7 +70,9 @@ public class ChatActivity extends Activity {
             });
             in = new EditText(this);
             in.setHint("Message");
-            in.setBackground(U.fond(Color.WHITE, U.dp(this, 20)));
+            in.setBackground(U.fond(0x22FFFFFF, U.dp(this, 20)));
+            in.setHintTextColor(0x99E8C4CB);
+            in.setTextColor(U.TEXTE);
             in.setPadding(p, p, p, p);
             Button se = U.btn(this, "➤");
             se.setOnClickListener(v -> envoyer());
@@ -89,6 +92,8 @@ public class ChatActivity extends Activity {
         h.post(poll);
     }
 
+    @Override protected void onResume() { super.onResume(); if (!ro) Presence.start(me); }
+    @Override protected void onPause() { super.onPause(); if (!ro) Presence.leave(); }
     @Override protected void onDestroy() { super.onDestroy(); actif = false; h.removeCallbacks(poll); }
 
     void charger() throws Exception {
@@ -139,7 +144,7 @@ public class ChatActivity extends Activity {
             w.setGravity(mine ? Gravity.END : Gravity.START);
             LinearLayout bub = new LinearLayout(this);
             bub.setOrientation(LinearLayout.VERTICAL);
-            bub.setBackground(U.fond(mine ? 0xFFDCF8C6 : Color.WHITE, U.dp(this, 10)));
+            bub.setBackground(U.fond(mine ? 0xFFB3123F : 0x33FFFFFF, U.dp(this, 14)));
             int p = U.dp(this, 8);
             bub.setPadding(p, p, p, p);
             if (ro) bub.addView(U.tv(this, mine ? nA : nB, 12, true));
@@ -155,7 +160,7 @@ public class ChatActivity extends Activity {
             String tx = o.optString("texte");
             if (!tx.isEmpty()) bub.addView(U.tv(this, tx, 16, false));
             TextView hr = U.tv(this, U.heure(o.optString("cree_le")), 10, false);
-            hr.setTextColor(0xFF888888);
+            hr.setTextColor(0xFFE8C4CB);
             bub.addView(hr);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
             if (mine) lp.setMargins(U.dp(this, 48), 0, 0, 0); else lp.setMargins(0, 0, U.dp(this, 48), 0);

@@ -23,11 +23,34 @@ public class Api {
     static String post(String p, String j) throws IOException { return call("POST", p, j, "return=representation"); }
     static void patch(String p, String j) throws IOException { call("PATCH", p, j, null); }
 
-    static void upload(String name, byte[] data) throws IOException {
-        Request r = new Request.Builder().url(Config.URL + "/storage/v1/object/videos/" + name)
+    interface Prog { void on(float f); }
+
+    static void upload(String name, byte[] data) throws IOException { upload(name, data, null); }
+
+    static void upload(String name, byte[] data, Prog p) throws IOException {
+        upload("videos", name, data, "video/mp4", true, p);
+    }
+
+    static void upload(String bucket, String name, byte[] data, String mime, boolean upsert, Prog p) throws IOException {
+        final MediaType mt = MediaType.parse(mime);
+        RequestBody body = new RequestBody() {
+            @Override public MediaType contentType() { return mt; }
+            @Override public long contentLength() { return data.length; }
+            @Override public void writeTo(okio.BufferedSink s) throws IOException {
+                int off = 0, last = -1;
+                while (off < data.length) {
+                    int n = Math.min(8192, data.length - off);
+                    s.write(data, off, n);
+                    off += n;
+                    int pc = (int) (100L * off / data.length);
+                    if (p != null && pc != last) { last = pc; p.on(pc / 100f); }
+                }
+            }
+        };
+        Request r = new Request.Builder().url(Config.URL + "/storage/v1/object/" + bucket + "/" + name)
                 .header("apikey", Config.KEY).header("Authorization", "Bearer " + Config.KEY)
-                .header("x-upsert", "true")
-                .post(RequestBody.create(data, MediaType.parse("video/mp4"))).build();
+                .header("x-upsert", upsert ? "true" : "false")
+                .post(body).build();
         try (Response x = C.newCall(r).execute()) {
             if (!x.isSuccessful()) throw new IOException(x.body().string());
         }

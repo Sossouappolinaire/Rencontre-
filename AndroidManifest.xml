@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
-        android:label="Rencontre"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:label="Lyly Dating"
+        android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -15,5 +17,8 @@
         <activity android:name=".ListeActivity"/>
         <activity android:name=".ChatActivity" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".AdminActivity"/>
+        <activity android:name=".LockActivity"/>
+        <activity android:name=".ConnexionActivity"/>
+        <activity android:name=".ParametresActivity"/>
     </application>
 </manifest>
