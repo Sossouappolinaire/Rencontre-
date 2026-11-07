@@ -3,11 +3,12 @@ package bj.rencontre;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.widget.*;
 import java.io.IOException;
 import org.json.*;
 
-/** Connexion à un compte existant : e-mail, puis code reçu par e-mail. */
+/** Connexion à un compte existant : e-mail + mot de passe. Mot de passe oublié : code reçu par e-mail. */
 public class ConnexionActivity extends Activity {
     LinearLayout root;
     String email = "";
@@ -15,10 +16,14 @@ public class ConnexionActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         U.fenetre(this);
+        ScrollView sv = new ScrollView(this);
         root = U.col(this);
-        setContentView(root);
-        etapeEmail();
+        sv.addView(root);
+        setContentView(sv);
+        etapeConnexion();
     }
+
+    // ---------- Outils d'interface ----------
 
     /** Carte centrale arrondie (style des maquettes), le contenu s'y ajoute. */
     LinearLayout carte(String titre) {
@@ -26,7 +31,7 @@ public class ConnexionActivity extends Activity {
         root.addView(U.header(this));
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        c.setGravity(Gravity.CENTER_HORIZONTAL);
         android.graphics.drawable.GradientDrawable g = U.fond(0x33000000, U.dp(this, 28));
         g.setStroke(U.dp(this, 1), 0x44F2C6B8);
         c.setBackground(g);
@@ -36,7 +41,7 @@ public class ConnexionActivity extends Activity {
         TextView t = U.tv(this, titre, 24, true);
         t.setTextColor(U.OR);
         t.setLetterSpacing(0.08f);
-        t.setGravity(android.view.Gravity.CENTER);
+        t.setGravity(Gravity.CENTER);
         c.addView(t, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, U.dp(this, 8), 0, U.dp(this, 8));
@@ -53,10 +58,43 @@ public class ConnexionActivity extends Activity {
         e.setPadding(h, v, h, v);
     }
 
-    void etapeEmail() {
+    EditText champMdp(String hint) {
+        EditText e = U.et(this, hint);
+        e.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        pilule(e);
+        return e;
+    }
+
+    TextView lien(String html) {
+        TextView t = new TextView(this);
+        t.setText(android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY));
+        t.setTextColor(U.TEXTE);
+        t.setTextSize(13);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, U.dp(this, 16), 0, U.dp(this, 8));
+        return t;
+    }
+
+    String msg(Exception e, String def) {
+        try {
+            JSONObject o = new JSONObject(e.getMessage());
+            String m = o.optString("erreur", o.optString("message", def));
+            return m.isEmpty() ? def : m;
+        } catch (Exception x) { return def; }
+    }
+
+    void entrer(String id) {
+        U.setId(this, id);
+        startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK));
+        finish();
+    }
+
+    // ---------- Étape 1 : e-mail + mot de passe ----------
+
+    void etapeConnexion() {
         LinearLayout k = carte("CONNEXION");
-        TextView d = U.tv(this, "Entre l'e-mail de ton compte, nous t'envoyons un code.", 14, false);
-        d.setGravity(android.view.Gravity.CENTER);
+        TextView d = U.tv(this, "Entre l'e-mail et le mot de passe de ton compte.", 14, false);
+        d.setGravity(Gravity.CENTER);
         d.setPadding(0, U.dp(this, 10), 0, U.dp(this, 6));
         k.addView(d);
         EditText em = U.et(this, "E-mail");
@@ -64,48 +102,65 @@ public class ConnexionActivity extends Activity {
         em.setText(email);
         pilule(em);
         U.add(k, em);
-        U.PBtn ok = U.connexion(this, "Recevoir le code");
+        EditText mdp = champMdp("Mot de passe");
+        U.add(k, mdp);
+        U.PBtn ok = U.connexion(this, "Se connecter");
         ok.setOnClickListener(v -> {
             email = em.getText().toString().trim();
-            if (email.isEmpty()) { U.toast(this, "E-mail invalide."); return; }
-            // Sans « @ » : l'application cherche un compte administrateur dans la base
-            if (!email.contains("@")) { etapeAdmin(email); return; }
-            ok.start("Envoi");
-            Api.bg(() -> {
-                try {
-                    Api.call("POST", "/functions/v1/envoyer-connexion", new JSONObject().put("email", email).toString(), null);
-                    runOnUiThread(() -> ok.succes(this::etapeCode));
-                } catch (Exception e) { U.toast(this, "Envoi impossible, réessaie."); runOnUiThread(ok::stop); }
-            });
-        });
-        U.add(k, ok);
-        U.add(root, U.retour(this));
-    }
-
-    /** Compte administrateur : reconnu uniquement s'il existe dans la base (table admins). Aucun bouton visible pour y accéder. */
-    void etapeAdmin(String identifiant) {
-        LinearLayout k = carte("MOT DE PASSE");
-        EditText mdp = U.et(this, "Mot de passe");
-        mdp.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        pilule(mdp);
-        U.add(k, mdp);
-        U.PBtn ok = U.connexion(this, "Connexion");
-        ok.setOnClickListener(v -> {
             final String pw = mdp.getText().toString();
+            if (email.isEmpty() || pw.isEmpty()) { U.toast(this, "Entre ton e-mail et ton mot de passe."); return; }
+            // Sans « @ » : l'application cherche un compte administrateur dans la base
+            if (!email.contains("@")) { adminLogin(email, pw, ok); return; }
             ok.start("Connexion");
             Api.bg(() -> {
                 try {
-                    String r = Api.call("POST", "/rest/v1/rpc/admin_login",
-                            new JSONObject().put("p_identifiant", identifiant).put("p_mdp", pw).toString(), null);
-                    if (r.trim().equals("true")) runOnUiThread(() -> ok.succes(() ->
-                            startActivity(new Intent(this, AdminActivity.class).putExtra("aid", identifiant).putExtra("amdp", pw))));
-                    else { U.toast(this, "Identifiants incorrects."); runOnUiThread(ok::stop); }
-                } catch (Exception e) { U.toast(this, "Erreur réseau."); runOnUiThread(ok::stop); }
+                    String r = Api.call("POST", "/rest/v1/rpc/connexion_mdp",
+                            new JSONObject().put("p_email", email).put("p_mdp", pw).toString(), null).trim();
+                    if (r.isEmpty() || r.equals("null"))
+                        throw new IOException("{\"erreur\":\"E-mail ou mot de passe incorrect.\"}");
+                    final String id = r.replace("\"", "");
+                    runOnUiThread(() -> ok.succes(() -> entrer(id)));
+                } catch (Exception e) {
+                    U.toast(this, msg(e, "Erreur réseau."));
+                    runOnUiThread(ok::stop);
+                }
             });
         });
         U.add(k, ok);
-        U.add(root, U.retour(this, "← Retour", this::etapeEmail));
+        TextView oubli = lien("Mot de passe oublié ? <u>Recevoir un code</u>");
+        oubli.setOnClickListener(v -> {
+            email = em.getText().toString().trim();
+            if (!email.contains("@")) { U.toast(this, "Entre d'abord ton e-mail."); return; }
+            oubli.setEnabled(false);
+            Api.bg(() -> {
+                try {
+                    Api.call("POST", "/functions/v1/envoyer-connexion", new JSONObject().put("email", email).toString(), null);
+                    runOnUiThread(this::etapeCode);
+                } catch (Exception e) {
+                    U.toast(this, "Envoi impossible, réessaie.");
+                    runOnUiThread(() -> oubli.setEnabled(true));
+                }
+            });
+        });
+        k.addView(oubli, new LinearLayout.LayoutParams(-1, -2));
+        U.add(root, U.retour(this));
     }
+
+    /** Compte administrateur : reconnu uniquement s'il existe dans la base (table admins). */
+    void adminLogin(String identifiant, String pw, U.PBtn ok) {
+        ok.start("Connexion");
+        Api.bg(() -> {
+            try {
+                String r = Api.call("POST", "/rest/v1/rpc/admin_login",
+                        new JSONObject().put("p_identifiant", identifiant).put("p_mdp", pw).toString(), null);
+                if (r.trim().equals("true")) runOnUiThread(() -> ok.succes(() ->
+                        startActivity(new Intent(this, AdminActivity.class).putExtra("aid", identifiant).putExtra("amdp", pw))));
+                else { U.toast(this, "Identifiants incorrects."); runOnUiThread(ok::stop); }
+            } catch (Exception e) { U.toast(this, "Erreur réseau."); runOnUiThread(ok::stop); }
+        });
+    }
+
+    // ---------- Mot de passe oublié : code reçu par e-mail ----------
 
     void envoyerCode(TextView lien) {
         lien.setEnabled(false);
@@ -119,20 +174,20 @@ public class ConnexionActivity extends Activity {
     }
 
     void etapeCode() {
-        LinearLayout k = carte("CODE DE CONNEXION");
+        LinearLayout k = carte("CODE REÇU");
         TextView d = U.tv(this, "Si un compte existe pour " + email + ", un code vient d'être envoyé (regarde aussi les spams).", 13, false);
-        d.setGravity(android.view.Gravity.CENTER);
+        d.setGravity(Gravity.CENTER);
         d.setPadding(0, U.dp(this, 10), 0, U.dp(this, 14));
         k.addView(d);
 
         // Six cases visuelles ; un champ invisible par-dessus capte la saisie.
         FrameLayout zoneCode = new FrameLayout(this);
         LinearLayout ligne = new LinearLayout(this);
-        ligne.setGravity(android.view.Gravity.CENTER);
+        ligne.setGravity(Gravity.CENTER);
         final TextView[] cases = new TextView[6];
         for (int n = 0; n < 6; n++) {
             TextView t = new TextView(this);
-            t.setGravity(android.view.Gravity.CENTER);
+            t.setGravity(Gravity.CENTER);
             t.setTextSize(22);
             t.setTypeface(null, android.graphics.Typeface.BOLD);
             t.setTextColor(U.TEXTE);
@@ -147,11 +202,11 @@ public class ConnexionActivity extends Activity {
         c.setBackground(null);
         c.setCursorVisible(false);
         c.setTextColor(0x00000000);
-        zoneCode.addView(ligne, new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.CENTER));
-        zoneCode.addView(c, new FrameLayout.LayoutParams(-1, U.dp(this, 52), android.view.Gravity.CENTER));
+        zoneCode.addView(ligne, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
+        zoneCode.addView(c, new FrameLayout.LayoutParams(-1, U.dp(this, 52), Gravity.CENTER));
         k.addView(zoneCode, new LinearLayout.LayoutParams(-1, -2));
 
-        U.PBtn ok = U.valider(this, "Se connecter");
+        U.PBtn ok = U.valider(this, "Continuer");
         Runnable maj = () -> {
             String v = c.getText().toString();
             for (int n = 0; n < 6; n++) {
@@ -167,42 +222,59 @@ public class ConnexionActivity extends Activity {
             public void onTextChanged(CharSequence a, int b2, int c2, int d2) { }
             public void afterTextChanged(android.text.Editable e) {
                 maj.run();
-                if (e.length() == 6 && !ok.busy) ok.performClick();
+                if (e.length() == 6) ok.performClick();
             }
         });
 
-        TextView renv = new TextView(this);
-        renv.setText(android.text.Html.fromHtml("Tu n'as pas reçu le code ? <u>Renvoyer</u>", android.text.Html.FROM_HTML_MODE_LEGACY));
-        renv.setTextColor(U.TEXTE);
-        renv.setTextSize(13);
-        renv.setGravity(android.view.Gravity.CENTER);
-        renv.setPadding(0, U.dp(this, 16), 0, U.dp(this, 8));
+        TextView renv = lien("Tu n'as pas reçu le code ? <u>Renvoyer</u>");
         renv.setOnClickListener(v -> envoyerCode(renv));
         k.addView(renv, new LinearLayout.LayoutParams(-1, -2));
 
         ok.setOnClickListener(v -> {
-            ok.start("Vérification");
+            String code = c.getText().toString().trim();
+            if (code.length() != 6) { U.toast(this, "Le code contient 6 chiffres."); return; }
+            etapeNouveauMdp(code);
+        });
+        U.add(k, ok);
+        U.add(root, U.retour(this, "← Retour", this::etapeConnexion));
+        c.requestFocus();
+    }
+
+    void etapeNouveauMdp(String code) {
+        LinearLayout k = carte("NOUVEAU MOT DE PASSE");
+        TextView d = U.tv(this, "Choisis un mot de passe (8 caractères minimum).", 13, false);
+        d.setGravity(Gravity.CENTER);
+        d.setPadding(0, U.dp(this, 10), 0, U.dp(this, 6));
+        k.addView(d);
+        EditText m1 = champMdp("Nouveau mot de passe");
+        EditText m2 = champMdp("Confirmer le mot de passe");
+        U.add(k, m1);
+        U.add(k, m2);
+        U.PBtn ok = U.valider(this, "Enregistrer");
+        ok.setOnClickListener(v -> {
+            final String pw = m1.getText().toString();
+            if (pw.length() < 8) { U.toast(this, "8 caractères minimum."); return; }
+            if (!pw.equals(m2.getText().toString())) { U.toast(this, "Les deux mots de passe sont différents."); return; }
+            ok.start("Enregistrement");
             Api.bg(() -> {
                 try {
-                    String r = Api.call("POST", "/rest/v1/rpc/verifier_connexion",
-                            new JSONObject().put("p_email", email).put("p_code", c.getText().toString().trim()).toString(), null).trim();
-                    if (r.isEmpty() || r.equals("null")) throw new IOException("{\"erreur\":\"Code incorrect ou expiré.\"}");
-                    String id = r.replace("\"", "");
-                    U.setId(this, id);
-                    runOnUiThread(() -> ok.succes(() -> {
-                        startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK));
-                        finish();
-                    }));
+                    String r = Api.call("POST", "/rest/v1/rpc/reinitialiser_mdp",
+                            new JSONObject().put("p_email", email).put("p_code", code).put("p_mdp", pw).toString(), null).trim();
+                    if (!r.equals("true")) {
+                        U.toast(this, "Code incorrect ou expiré.");
+                        runOnUiThread(this::etapeCode);
+                        return;
+                    }
+                    String id = Api.call("POST", "/rest/v1/rpc/connexion_mdp",
+                            new JSONObject().put("p_email", email).put("p_mdp", pw).toString(), null).trim().replace("\"", "");
+                    runOnUiThread(() -> ok.succes(() -> entrer(id)));
                 } catch (Exception e) {
-                    String m = "Code incorrect ou expiré.";
-                    try { m = new JSONObject(e.getMessage()).optString("erreur", m); } catch (Exception ignore) { }
-                    U.toast(this, m);
-                    runOnUiThread(() -> { ok.stop(); c.setText(""); });
+                    U.toast(this, msg(e, "Erreur réseau."));
+                    runOnUiThread(ok::stop);
                 }
             });
         });
         U.add(k, ok);
-        U.add(root, U.retour(this, "← Changer d'e-mail", this::etapeEmail));
-        c.requestFocus();
+        U.add(root, U.retour(this, "← Retour", this::etapeConnexion));
     }
 }

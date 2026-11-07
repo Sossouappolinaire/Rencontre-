@@ -9,7 +9,7 @@ import org.json.*;
 import java.util.*;
 
 public class InscriptionActivity extends Activity {
-    EditText nom, prenom, email, wa, age, profession, desc;
+    EditText nom, prenom, email, mdp, mdp2, wa, age, profession, desc;
     Spinner taille;
     static final int TAILLE_MIN = 100, TAILLE_MAX = 230, TAILLE_PAS = 1; // en cm
     Spinner pays, sexe, cherche;
@@ -48,7 +48,11 @@ public class InscriptionActivity extends Activity {
         email = U.et(this, "E-mail");
         wa = U.et(this, "Numéro WhatsApp avec indicatif (ex : 22990000000)");
         wa.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
-        U.add(l, nom); U.add(l, prenom); U.add(l, email);
+        mdp = U.et(this, "Mot de passe (8 caractères minimum)");
+        mdp.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        mdp2 = U.et(this, "Confirmer le mot de passe");
+        mdp2.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        U.add(l, nom); U.add(l, prenom); U.add(l, email); U.add(l, mdp); U.add(l, mdp2);
 
         for (String c : Locale.getISOCountries()) {
             String n = new Locale("", c).getDisplayCountry(Locale.FRENCH);
@@ -119,6 +123,8 @@ public class InscriptionActivity extends Activity {
             U.toast(this, "Remplis tous les champs et ajoute ta photo.");
             return;
         }
+        if (mdp.getText().toString().length() < 8) { U.toast(this, "Le mot de passe doit contenir 8 caractères minimum."); return; }
+        if (!mdp.getText().toString().equals(mdp2.getText().toString())) { U.toast(this, "Les deux mots de passe sont différents."); return; }
         int a = nombre(age), t = TAILLE_MIN + taille.getSelectedItemPosition() * TAILLE_PAS;
         if (a < 18 || a > 99) { U.toast(this, "L'inscription est réservée aux personnes de 18 ans et plus."); return; }
         if (profession.getText().toString().trim().isEmpty()) { U.toast(this, "Indique ta profession."); return; }
@@ -135,6 +141,7 @@ public class InscriptionActivity extends Activity {
             o.put("sexe", sexe.getSelectedItemPosition() == 0 ? "homme" : "femme");
             o.put("cherche", cherche.getSelectedItemPosition() == 0 ? "homme" : "femme");
             o.put("photo_url", photo);
+            o.put("mdp", mdp.getText().toString());
             o.put("age", a);
             o.put("taille_cm", t);
             o.put("profession", profession.getText().toString().trim());
