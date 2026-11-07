@@ -109,10 +109,25 @@ public class ConnexionActivity extends Activity {
             email = em.getText().toString().trim();
             final String pw = mdp.getText().toString();
             if (email.isEmpty() || pw.isEmpty()) { U.toast(this, "Entre ton e-mail et ton mot de passe."); return; }
-            // Sans « @ » : l'application cherche un compte administrateur dans la base
-            if (!email.contains("@")) { adminLogin(email, pw, ok); return; }
             ok.start("Connexion");
             Api.bg(() -> {
+                // 1) Compte administrateur : reconnu uniquement s'il existe dans la table admins (identifiant avec ou sans « @ »)
+                try {
+                    String a = Api.call("POST", "/rest/v1/rpc/admin_login",
+                            new JSONObject().put("p_identifiant", email).put("p_mdp", pw).toString(), null);
+                    if (a.trim().equals("true")) {
+                        final String idAdmin = email;
+                        runOnUiThread(() -> ok.succes(() ->
+                                startActivity(new Intent(this, AdminActivity.class).putExtra("aid", idAdmin).putExtra("amdp", pw))));
+                        return;
+                    }
+                } catch (Exception ignore) { }
+                if (!email.contains("@")) {
+                    U.toast(this, "Identifiants incorrects.");
+                    runOnUiThread(ok::stop);
+                    return;
+                }
+                // 2) Compte membre : e-mail + mot de passe
                 try {
                     String r = Api.call("POST", "/rest/v1/rpc/connexion_mdp",
                             new JSONObject().put("p_email", email).put("p_mdp", pw).toString(), null).trim();
@@ -144,20 +159,6 @@ public class ConnexionActivity extends Activity {
         });
         k.addView(oubli, new LinearLayout.LayoutParams(-1, -2));
         U.add(root, U.retour(this));
-    }
-
-    /** Compte administrateur : reconnu uniquement s'il existe dans la base (table admins). */
-    void adminLogin(String identifiant, String pw, U.PBtn ok) {
-        ok.start("Connexion");
-        Api.bg(() -> {
-            try {
-                String r = Api.call("POST", "/rest/v1/rpc/admin_login",
-                        new JSONObject().put("p_identifiant", identifiant).put("p_mdp", pw).toString(), null);
-                if (r.trim().equals("true")) runOnUiThread(() -> ok.succes(() ->
-                        startActivity(new Intent(this, AdminActivity.class).putExtra("aid", identifiant).putExtra("amdp", pw))));
-                else { U.toast(this, "Identifiants incorrects."); runOnUiThread(ok::stop); }
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); runOnUiThread(ok::stop); }
-        });
     }
 
     // ---------- Mot de passe oublié : code reçu par e-mail ----------
