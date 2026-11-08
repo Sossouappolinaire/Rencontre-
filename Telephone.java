@@ -1,9 +1,9 @@
 package bj.rencontre;
 
 import android.content.Context;
-import com.google.i18n.phonenumbers.NumberParseException;
-import com.google.i18n.phonenumbers.PhoneNumberUtil;
-import com.google.i18n.phonenumbers.Phonenumber;
+import io.michaelrocks.libphonenumber.android.NumberParseException;
+import io.michaelrocks.libphonenumber.android.PhoneNumberUtil;
+import io.michaelrocks.libphonenumber.android.Phonenumber;
 
 /** Contrôle des numéros WhatsApp selon les règles de chaque pays (longueur, préfixes mobiles, indicatif). */
 final class Telephone {
