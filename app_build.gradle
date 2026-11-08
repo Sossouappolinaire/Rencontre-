@@ -16,5 +16,5 @@ android {
 }
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'io.michaelrocks:libphonenumber-android:9.0.34'
+    implementation 'io.michaelrocks:libphonenumber-android:8.13.55'
 }
