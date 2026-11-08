@@ -324,4 +324,37 @@ public class U {
         return new String(Character.toChars(0x1F1E6 + code.charAt(0) - 'A'))
                 + new String(Character.toChars(0x1F1E6 + code.charAt(1) - 'A'));
     }
+
+    /** Carte centrale arrondie ajoutée à parent ; retourne la carte pour y placer le contenu. */
+    static LinearLayout carte(Context c, LinearLayout parent, String titre) {
+        LinearLayout k = new LinearLayout(c);
+        k.setOrientation(LinearLayout.VERTICAL);
+        k.setGravity(Gravity.CENTER_HORIZONTAL);
+        GradientDrawable g = fond(0x33000000, dp(c, 28));
+        g.setStroke(dp(c, 1), 0x44F2C6B8);
+        k.setBackground(g);
+        k.setElevation(dp(c, 12));
+        int p = dp(c, 20);
+        k.setPadding(p, p, p, p);
+        TextView t = tv(c, titre, 24, true);
+        t.setTextColor(OR);
+        t.setLetterSpacing(0.08f);
+        t.setGravity(Gravity.CENTER);
+        k.addView(t, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, dp(c, 8), 0, dp(c, 8));
+        parent.addView(k, lp);
+        return k;
+    }
+
+    /** Texte cliquable souligné, ex : « Tu n'as pas reçu le code ? <u>Renvoyer</u> ». */
+    static TextView lien(Context c, String html) {
+        TextView t = new TextView(c);
+        t.setText(android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_LEGACY));
+        t.setTextColor(TEXTE);
+        t.setTextSize(13);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(c, 16), 0, dp(c, 8));
+        return t;
+    }
 }

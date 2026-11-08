@@ -9,6 +9,7 @@ import org.json.*;
 public class MainActivity extends Activity {
     LinearLayout root;
     U.PBtn rafr;
+    OtpView otp;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -55,20 +56,38 @@ public class MainActivity extends Activity {
         rafr = U.connexion(this, "Actualiser");
         rafr.setOnClickListener(v -> { rafr.start("Actualisation"); charger(); });
         if (s.equals("demande_code") || s.equals("code_envoye")) {
-            root.addView(U.tv(this, "\nUn code de confirmation a été envoyé à ton adresse e-mail (regarde aussi les spams). Copie-le puis colle-le ici.", 16, false));
-            EditText code = U.et(this, "Code de confirmation");
-            U.add(root, code);
-            U.PBtn ok = U.valider(this, "Valider le code");
-            ok.setOnClickListener(v -> valider(code.getText().toString().trim(), ok));
-            U.add(root, ok);
-            U.PBtn re = U.pulse(this, "Renvoyer le code par e-mail");
-            re.setOnClickListener(v -> renvoyer(re));
-            U.add(root, re);
+            LinearLayout k = U.carte(this, root, "VÉRIFICATION");
+            TextView d = U.tv(this, "Un code à 6 chiffres a été envoyé à ton adresse e-mail (regarde aussi les spams).\nCopie-le : il se remplit tout seul ici.", 14, false);
+            d.setGravity(android.view.Gravity.CENTER);
+            d.setPadding(0, U.dp(this, 10), 0, U.dp(this, 14));
+            k.addView(d);
+            U.PBtn ok = U.valider(this, "Vérifier");
+            otp = new OtpView(this, 6, () -> { if (!ok.busy) ok.performClick(); });
+            k.addView(otp, new LinearLayout.LayoutParams(-1, -2));
+            ok.setOnClickListener(v -> valider(otp.code().trim(), ok));
+            LinearLayout actions = new LinearLayout(this);
+            actions.setGravity(android.view.Gravity.CENTER);
+            actions.setPadding(0, U.dp(this, 14), 0, 0);
+            Button coller = U.btn(this, "📋 Coller le code");
+            Button mail = U.btn(this, "📧 Ouvrir ma messagerie");
+            coller.setTextSize(12);
+            mail.setTextSize(12);
+            coller.setOnClickListener(v -> { if (!otp.coller(this, true)) U.toast(this, "Aucun code à 6 chiffres copié. Copie-le depuis l'e-mail."); });
+            mail.setOnClickListener(v -> ouvrirMessagerie());
+            actions.addView(coller, new LinearLayout.LayoutParams(0, -2, 1));
+            actions.addView(mail, new LinearLayout.LayoutParams(0, -2, 1));
+            k.addView(actions, new LinearLayout.LayoutParams(-1, -2));
+            k.addView(CodeRecu.activation(this), new LinearLayout.LayoutParams(-1, -2));
+            TextView renv = U.lien(this, "Tu n'as pas reçu le code ? <u>Renvoyer</u>");
+            renv.setOnClickListener(v -> renvoyer(renv));
+            k.addView(renv, new LinearLayout.LayoutParams(-1, -2));
+            U.add(k, ok);
             U.add(root, U.retour(this, "← Retour (changer d'e-mail)", () -> {
                 U.setId(this, null);
                 startActivity(new Intent(this, InscriptionActivity.class));
                 finish();
             }));
+            otp.post(() -> otp.coller(this, false)); // code déjà copié depuis l'e-mail : saisie automatique
         } else if (s.equals("attente_video")) {
             root.addView(U.tv(this, "\nPour activer ton compte, enregistre une vidéo de 20 secondes (filmée en direct).", 16, false));
             U.PBtn vb = U.inscription(this, "Enregistrer ma vidéo");
@@ -82,21 +101,26 @@ public class MainActivity extends Activity {
         U.add(root, rafr);
     }
 
-    void renvoyer(U.PBtn re) {
+    void renvoyer(TextView lien) {
         String id = U.id(this);
-        re.start("Envoi");
+        lien.setEnabled(false);
         Api.bg(() -> {
             try {
                 Api.call("POST", "/functions/v1/envoyer-code", "{\"membre_id\":\"" + id + "\"}", null);
                 U.toast(this, "Code renvoyé par e-mail.");
-                runOnUiThread(() -> re.succes(null));
             } catch (Exception e) {
                 String msg = "Envoi impossible, réessaie.";
                 try { msg = new JSONObject(e.getMessage()).optString("erreur", msg); } catch (Exception ignore) { }
                 U.toast(this, msg);
-                runOnUiThread(re::stop);
             }
+            runOnUiThread(() -> lien.postDelayed(() -> lien.setEnabled(true), 30000));
         });
+    }
+
+    void ouvrirMessagerie() {
+        try {
+            startActivity(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_EMAIL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) { U.toast(this, "Aucune application de messagerie trouvée."); }
     }
 
     void valider(String code, U.PBtn ok) {
@@ -110,7 +134,7 @@ public class MainActivity extends Activity {
                 o.put("p_code", code);
                 String r = Api.call("POST", "/rest/v1/rpc/verifier_code", o.toString(), null);
                 if (r.trim().equals("true")) runOnUiThread(() -> ok.succes(this::charger));
-                else { U.toast(this, "Code incorrect ou expiré."); runOnUiThread(ok::stop); }
+                else { U.toast(this, "Code incorrect ou expiré."); runOnUiThread(() -> { ok.stop(); if (otp != null) otp.vider(); }); }
             } catch (Exception e) { U.toast(this, "Erreur réseau."); runOnUiThread(ok::stop); }
         });
     }

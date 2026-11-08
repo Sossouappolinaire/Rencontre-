@@ -46,7 +46,7 @@ public class InscriptionActivity extends Activity {
         nom = U.et(this, "Nom");
         prenom = U.et(this, "Prénom");
         email = U.et(this, "E-mail");
-        wa = U.et(this, "Numéro WhatsApp avec indicatif (ex : 22990000000)");
+        wa = U.et(this, "Numéro WhatsApp");
         wa.setInputType(android.text.InputType.TYPE_CLASS_PHONE);
         mdp = U.et(this, "Mot de passe (8 caractères minimum)");
         mdp.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
@@ -67,6 +67,14 @@ public class InscriptionActivity extends Activity {
         U.champ(pays);
         U.add(l, pays);
         U.add(l, wa);
+        // L'indicatif et l'exemple de numéro suivent le pays choisi
+        pays.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> a, android.view.View v, int pos, long id) {
+                String r = L.get(pos)[0];
+                wa.setHint("WhatsApp, ex : " + Telephone.exemple(InscriptionActivity.this, r));
+            }
+            @Override public void onNothingSelected(AdapterView<?> a) { }
+        });
 
         sexe = new Spinner(this);
         sexe.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
@@ -117,10 +125,15 @@ public class InscriptionActivity extends Activity {
     }
 
     void envoyer(U.PBtn ok) {
-        String num = wa.getText().toString().replaceAll("[^0-9]", "");
+        String[] p = L.get(pays.getSelectedItemPosition());
         if (photo == null || nom.getText().toString().trim().isEmpty() || prenom.getText().toString().trim().isEmpty()
-                || !email.getText().toString().contains("@") || num.length() < 8) {
+                || !email.getText().toString().contains("@") || wa.getText().toString().trim().isEmpty()) {
             U.toast(this, "Remplis tous les champs et ajoute ta photo.");
+            return;
+        }
+        String num = Telephone.valider(this, wa.getText().toString(), p[0]);
+        if (num == null) {
+            U.toast(this, "Numéro WhatsApp invalide pour " + p[1] + ". Exemple : " + Telephone.exemple(this, p[0]) + " (numéro mobile).");
             return;
         }
         if (mdp.getText().toString().length() < 8) { U.toast(this, "Le mot de passe doit contenir 8 caractères minimum."); return; }
@@ -129,7 +142,6 @@ public class InscriptionActivity extends Activity {
         if (a < 18 || a > 99) { U.toast(this, "L'inscription est réservée aux personnes de 18 ans et plus."); return; }
         if (profession.getText().toString().trim().isEmpty()) { U.toast(this, "Indique ta profession."); return; }
         if (desc.getText().toString().trim().length() < 10) { U.toast(this, "Décris en quelques mots les qualités que tu recherches."); return; }
-        String[] p = L.get(pays.getSelectedItemPosition());
         JSONObject o = new JSONObject();
         try {
             o.put("nom", nom.getText().toString().trim());
@@ -162,7 +174,9 @@ public class InscriptionActivity extends Activity {
                     finish();
                 }));
             } catch (Exception e) {
-                U.toast(this, "Erreur : " + e.getMessage());
+                String m = String.valueOf(e.getMessage());
+                if (m.contains("membres_email_uq")) U.toast(this, "Cet e-mail est déjà inscrit. Appuie sur « J'ai déjà un compte » (mot de passe oublié ? tu peux recevoir un code).");
+                else U.toast(this, "Erreur : " + m);
                 runOnUiThread(ok::stop);
             }
         });

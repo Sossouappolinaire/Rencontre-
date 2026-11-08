@@ -181,64 +181,31 @@ public class ConnexionActivity extends Activity {
         d.setPadding(0, U.dp(this, 10), 0, U.dp(this, 14));
         k.addView(d);
 
-        // Six cases visuelles ; un champ invisible par-dessus capte la saisie.
-        FrameLayout zoneCode = new FrameLayout(this);
-        LinearLayout ligne = new LinearLayout(this);
-        ligne.setGravity(Gravity.CENTER);
-        final TextView[] cases = new TextView[6];
-        for (int n = 0; n < 6; n++) {
-            TextView t = new TextView(this);
-            t.setGravity(Gravity.CENTER);
-            t.setTextSize(22);
-            t.setTypeface(null, android.graphics.Typeface.BOLD);
-            t.setTextColor(U.TEXTE);
-            cases[n] = t;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(U.dp(this, 42), U.dp(this, 52));
-            lp.setMargins(U.dp(this, 4), 0, U.dp(this, 4), 0);
-            ligne.addView(t, lp);
-        }
-        EditText c = new EditText(this);
-        c.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        c.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(6)});
-        c.setBackground(null);
-        c.setCursorVisible(false);
-        c.setTextColor(0x00000000);
-        zoneCode.addView(ligne, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
-        zoneCode.addView(c, new FrameLayout.LayoutParams(-1, U.dp(this, 52), Gravity.CENTER));
-        k.addView(zoneCode, new LinearLayout.LayoutParams(-1, -2));
-
         U.PBtn ok = U.valider(this, "Continuer");
-        Runnable maj = () -> {
-            String v = c.getText().toString();
-            for (int n = 0; n < 6; n++) {
-                cases[n].setText(n < v.length() ? String.valueOf(v.charAt(n)) : "");
-                android.graphics.drawable.GradientDrawable g = U.fond(0x22FFFFFF, U.dp(this, 12));
-                g.setStroke(U.dp(this, n == v.length() ? 2 : 1), n == v.length() ? U.ROSE : 0x88F2C6B8);
-                cases[n].setBackground(g);
-            }
-        };
-        maj.run();
-        c.addTextChangedListener(new android.text.TextWatcher() {
-            public void beforeTextChanged(CharSequence a, int b2, int c2, int d2) { }
-            public void onTextChanged(CharSequence a, int b2, int c2, int d2) { }
-            public void afterTextChanged(android.text.Editable e) {
-                maj.run();
-                if (e.length() == 6) ok.performClick();
-            }
-        });
+        OtpView otp = new OtpView(this, 6, () -> ok.performClick());
+        k.addView(otp, new LinearLayout.LayoutParams(-1, -2));
+        Button coller = U.btn(this, "📋 Coller le code");
+        coller.setTextSize(12);
+        coller.setOnClickListener(v -> { if (!otp.coller(this, true)) U.toast(this, "Aucun code à 6 chiffres copié."); });
+        LinearLayout ac = new LinearLayout(this);
+        ac.setGravity(Gravity.CENTER);
+        ac.setPadding(0, U.dp(this, 14), 0, 0);
+        ac.addView(coller, new LinearLayout.LayoutParams(0, -2, 1));
+        k.addView(ac, new LinearLayout.LayoutParams(-1, -2));
+        k.addView(CodeRecu.activation(this), new LinearLayout.LayoutParams(-1, -2));
+        otp.post(() -> otp.coller(this, false)); // code déjà copié depuis l'e-mail
 
         TextView renv = lien("Tu n'as pas reçu le code ? <u>Renvoyer</u>");
         renv.setOnClickListener(v -> envoyerCode(renv));
         k.addView(renv, new LinearLayout.LayoutParams(-1, -2));
 
         ok.setOnClickListener(v -> {
-            String code = c.getText().toString().trim();
+            String code = otp.code().trim();
             if (code.length() != 6) { U.toast(this, "Le code contient 6 chiffres."); return; }
             etapeNouveauMdp(code);
         });
         U.add(k, ok);
         U.add(root, U.retour(this, "← Retour", this::etapeConnexion));
-        c.requestFocus();
     }
 
     void etapeNouveauMdp(String code) {

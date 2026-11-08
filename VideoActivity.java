@@ -48,8 +48,9 @@ public class VideoActivity extends Activity {
                 while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
                 Api.upload(id + ".mp4", o.toByteArray(), f -> runOnUiThread(() -> go.setProgress(f)));
                 String url = Config.URL + "/storage/v1/object/public/videos/" + id + ".mp4";
-                Api.patch("/rest/v1/membres?id=eq." + id,
-                        "{\"statut\":\"attente_validation\",\"video_url\":\"" + url + "\"}");
+                String r = Api.call("POST", "/rest/v1/rpc/soumettre_video",
+                        new org.json.JSONObject().put("p_id", id).put("p_url", url).toString(), null);
+                if (!r.trim().equals("true")) throw new IOException("compte non éligible à l'envoi d'une vidéo");
                 runOnUiThread(() -> go.succes(this::finish));
             } catch (Exception e) {
                 U.toast(this, "Échec de l'envoi : " + e.getMessage());

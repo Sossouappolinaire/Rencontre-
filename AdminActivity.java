@@ -126,7 +126,8 @@ public class AdminActivity extends Activity {
     void validations() {
         Api.bg(() -> {
             try {
-                JSONArray a = new JSONArray(Api.get("/rest/v1/membres?statut=eq.attente_validation&order=cree_le.asc&select=id,prenom,nom,pays,sexe,photo_url,video_url"));
+                String r = Api.call("POST", "/rest/v1/rpc/admin_validations", creds().toString(), null);
+                JSONArray a = new JSONArray(r);
                 afficher(a, "Aucun compte à valider.", o -> {
                     String id = o.optString("id"), vid = o.optString("video_url");
                     return carte(U.b64(o.optString("photo_url")), o.optString("prenom") + " " + o.optString("nom"),
@@ -144,10 +145,43 @@ public class AdminActivity extends Activity {
     void statut(String id, String s) {
         Api.bg(() -> {
             try {
-                Api.patch("/rest/v1/membres?id=eq." + id, "{\"statut\":\"" + s + "\"}");
+                String r = Api.call("POST", "/rest/v1/rpc/admin_statut", creds().put("p_id", id).put("p_statut", s).toString(), null);
+                if (!r.trim().equals("true")) { U.toast(this, "Action refusée (compte déjà traité ?)."); validations(); return; }
                 validations();
+                if (s.equals("actif")) whatsappMembre(id, "Bonjour %s 💞, ton compte Lyly Dating est confirmé et activé ✅. Tu peux maintenant découvrir les profils.");
             } catch (Exception e) { U.toast(this, "Erreur réseau."); }
         });
+    }
+
+    /** Ouvre WhatsApp sur la conversation du membre avec un message prérempli (%s = prénom). */
+    void whatsappMembre(String id, String modele) {
+        try {
+            JSONObject r = new JSONObject(Api.call("POST", "/rest/v1/rpc/admin_whatsapp", creds().put("p_id", id).toString(), null));
+            String num = r.optString("whatsapp").replaceAll("[^0-9]", "");
+            if (num.isEmpty()) { U.toast(this, "Numéro WhatsApp introuvable."); return; }
+            String msg = String.format(modele, r.optString("prenom"));
+            Uri u = Uri.parse("https://wa.me/" + num + "?text=" + Uri.encode(msg));
+            runOnUiThread(() -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, u)); }
+                catch (Exception e) { U.toast(this, "WhatsApp indisponible."); }
+            });
+        } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+    }
+
+    String libelleStatut(String s) {
+        switch (s) {
+            case "demande_code": case "code_envoye": return "📧 e-mail à confirmer";
+            case "attente_video": return "🎥 vidéo à envoyer";
+            case "attente_validation": return "⏳ à valider";
+            case "actif": return "✅ actif";
+            case "refuse": return "🚫 rejeté";
+            default: return s;
+        }
+    }
+
+    /** Action admin sur un membre via une fonction réservée à l'administrateur ; true si acceptée. */
+    boolean actionMembre(String fonction, String id) throws Exception {
+        return Api.call("POST", "/rest/v1/rpc/" + fonction, creds().put("p_id", id).toString(), null).trim().equals("true");
     }
 
     void discussions() {
@@ -208,14 +242,56 @@ public class AdminActivity extends Activity {
                 final int n = on;
                 runOnUiThread(() -> {
                     zone.removeAllViews();
-                    zone.addView(U.tv(this, "\n👥 " + a.length() + " membre(s) inscrit(s)  ·  🟢 " + n + " en ligne", 16, true));
+                    zone.addView(U.tv(this, "\n👥 " + a.length() + " membre(s) inscrit(s)  ·  🟢 " + n + " en ligne\n", 16, true));
                     for (int i = 0; i < a.length(); i++) {
                         JSONObject o = a.optJSONObject(i);
+                        String id = o.optString("id"), st = o.optString("statut"), nom = o.optString("prenom") + " " + o.optString("nom");
                         String drap = o.optString("pays_code").length() == 2 ? U.drapeau(o.optString("pays_code")) + " " : "";
-                        zone.addView(U.tv(this, "\n" + (o.optBoolean("en_ligne") ? "🟢 " : "⚪ ") + o.optString("prenom") + " " + o.optString("nom")
-                                + "\n     " + drap + o.optString("pays") + " · " + o.optString("sexe") + " · " + o.optString("statut"), 14, false));
+                        java.util.ArrayList<String> noms = new java.util.ArrayList<>();
+                        java.util.ArrayList<Runnable> acts = new java.util.ArrayList<>();
+                        if (st.equals("demande_code") || st.equals("code_envoye")) {
+                            noms.add("✔ Confirmer");
+                            acts.add(() -> confirmerEmail(id));
+                        }
+                        noms.add("💬");
+                        acts.add(() -> Api.bg(() -> whatsappMembre(id, "Bonjour %s 👋, c'est l'équipe Lyly Dating.")));
+                        if (!st.equals("refuse")) {
+                            noms.add("🚫 Rejeter");
+                            acts.add(() -> new android.app.AlertDialog.Builder(this)
+                                    .setTitle("Rejeter ce compte ?")
+                                    .setMessage(nom + " ne pourra plus utiliser l'application.")
+                                    .setPositiveButton("Rejeter", (d, w) -> Api.bg(() -> traiter("admin_rejeter", id, "Compte rejeté.")))
+                                    .setNegativeButton("Annuler", null).show());
+                        }
+                        noms.add("🗑");
+                        acts.add(() -> new android.app.AlertDialog.Builder(this)
+                                .setTitle("Supprimer définitivement ?")
+                                .setMessage(nom + " sera supprimé(e) avec ses discussions. Cette action est irréversible.")
+                                .setPositiveButton("Supprimer", (d, w) -> Api.bg(() -> traiter("admin_supprimer", id, "Compte supprimé.")))
+                                .setNegativeButton("Annuler", null).show());
+                        zone.addView(carte(null, (o.optBoolean("en_ligne") ? "🟢 " : "⚪ ") + nom,
+                                drap + o.optString("pays") + " · " + o.optString("sexe") + "\n" + libelleStatut(st),
+                                noms.toArray(new String[0]), acts.toArray(new Runnable[0])));
                     }
                 });
+            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+        });
+    }
+
+    void traiter(String fonction, String id, String ok) {
+        try {
+            if (actionMembre(fonction, id)) U.toast(this, ok); else U.toast(this, "Action impossible.");
+        } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+        membres();
+    }
+
+    /** Confirme le compte sans passer par le code e-mail, puis prévient la personne sur WhatsApp. */
+    void confirmerEmail(String id) {
+        Api.bg(() -> {
+            try {
+                if (!actionMembre("admin_confirmer_email", id)) { U.toast(this, "Action impossible."); membres(); return; }
+                membres();
+                whatsappMembre(id, "Bonjour %s 👋, ton compte Lyly Dating est confirmé ✅. Ouvre l'application pour continuer ton inscription (prochaine étape : ta vidéo).");
             } catch (Exception e) { U.toast(this, "Erreur réseau."); }
         });
     }

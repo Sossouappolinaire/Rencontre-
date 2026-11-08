@@ -20,5 +20,12 @@
         <activity android:name=".LockActivity"/>
         <activity android:name=".ConnexionActivity"/>
         <activity android:name=".ParametresActivity"/>
+        <service android:name=".CodeNotifListener" android:exported="true"
+            android:label="Lyly Dating : code de confirmation"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
     </application>
 </manifest>
