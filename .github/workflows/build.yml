@@ -1,3 +1,4 @@
+# À placer dans le dépôt GitHub : .github/workflows/build.yml
 name: Compiler APK
 on:
   push:
