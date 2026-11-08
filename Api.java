@@ -55,5 +55,17 @@ public class Api {
             if (!x.isSuccessful()) throw new IOException(x.body().string());
         }
     }
+    /** Télécharge une URL et écrit son contenu dans out (sans tout garder en mémoire). */
+    static void download(String url, java.io.OutputStream out) throws IOException {
+        Request r = new Request.Builder().url(url).get().build();
+        try (Response x = C.newCall(r).execute()) {
+            if (!x.isSuccessful()) throw new IOException("Téléchargement impossible (code " + x.code() + ").");
+            try (java.io.InputStream in = x.body().byteStream()) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+        }
+    }
     static void bg(Runnable r) { new Thread(r).start(); }
 }

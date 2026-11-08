@@ -15,7 +15,9 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         U.fenetre(this);
         root = U.col(this);
-        setContentView(root);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(root);
+        setContentView(sv);
     }
     @Override protected void onResume() { super.onResume(); charger(); }
 
@@ -33,20 +35,22 @@ public class MainActivity extends Activity {
         }
         Api.bg(() -> {
             try {
-                JSONArray a = new JSONArray(Api.get("/rest/v1/membres?id=eq." + id + "&select=statut"));
+                JSONArray a = new JSONArray(Api.get("/rest/v1/membres?id=eq." + id + "&select=statut,video_ok"));
                 if (a.length() == 0) { U.setId(this, null); runOnUiThread(this::charger); return; }
                 String s = a.getJSONObject(0).getString("statut");
-                runOnUiThread(() -> ecran(s));
+                boolean vo = a.getJSONObject(0).optBoolean("video_ok");
+                runOnUiThread(() -> ecran(s, vo));
             } catch (Exception e) {
-                U.toast(this, "Erreur réseau, réessaie.");
+                U.erreur(this, "Erreur réseau : " + U.msg(e, "vérifie ta connexion puis réessaie."));
                 runOnUiThread(() -> { if (rafr != null) rafr.stop(); });
             }
         });
     }
 
-    void ecran(String s) {
+    void ecran(String s, boolean videoOk) {
         root.removeAllViews();
-        if (s.equals("actif")) {
+        // Compte opérationnel (la vidéo se fait ensuite, depuis la liste ou les paramètres)
+        if (s.equals("actif") || s.equals("attente_video") || s.equals("attente_validation")) {
             startActivity(new Intent(this, ListeActivity.class));
             finish();
             return;
@@ -56,12 +60,13 @@ public class MainActivity extends Activity {
         rafr = U.connexion(this, "Actualiser");
         rafr.setOnClickListener(v -> { rafr.start("Actualisation"); charger(); });
         if (s.equals("demande_code") || s.equals("code_envoye")) {
-            LinearLayout k = U.carte(this, root, "VÉRIFICATION");
-            TextView d = U.tv(this, "Un code à 6 chiffres a été envoyé à ton adresse e-mail (regarde aussi les spams).\nCopie-le : il se remplit tout seul ici.", 14, false);
+            // Compte créé et ouvert : l'administrateur valide puis envoie le code par WhatsApp
+            LinearLayout k = U.carte(this, root, "ACTIVATION");
+            TextView d = U.tv(this, "Ton compte est créé ✅\nL'administrateur va le valider puis t'envoyer un code à 6 chiffres sur ton WhatsApp.\nSaisis ce code ici pour que ton compte soit opérationnel.", 14, false);
             d.setGravity(android.view.Gravity.CENTER);
             d.setPadding(0, U.dp(this, 10), 0, U.dp(this, 14));
             k.addView(d);
-            U.PBtn ok = U.valider(this, "Vérifier");
+            U.PBtn ok = U.valider(this, "Valider le code");
             otp = new OtpView(this, 6, () -> { if (!ok.busy) ok.performClick(); });
             k.addView(otp, new LinearLayout.LayoutParams(-1, -2));
             ok.setOnClickListener(v -> valider(otp.code().trim(), ok));
@@ -69,62 +74,37 @@ public class MainActivity extends Activity {
             actions.setGravity(android.view.Gravity.CENTER);
             actions.setPadding(0, U.dp(this, 14), 0, 0);
             Button coller = U.btn(this, "📋 Coller le code");
-            Button mail = U.btn(this, "📧 Ouvrir ma messagerie");
             coller.setTextSize(12);
-            mail.setTextSize(12);
-            coller.setOnClickListener(v -> { if (!otp.coller(this, true)) U.toast(this, "Aucun code à 6 chiffres copié. Copie-le depuis l'e-mail."); });
-            mail.setOnClickListener(v -> ouvrirMessagerie());
+            coller.setOnClickListener(v -> { if (!otp.coller(this, true)) U.erreur(this, "Aucun code à 6 chiffres copié. Copie le code depuis le message WhatsApp de l'administrateur."); });
             actions.addView(coller, new LinearLayout.LayoutParams(0, -2, 1));
-            actions.addView(mail, new LinearLayout.LayoutParams(0, -2, 1));
             k.addView(actions, new LinearLayout.LayoutParams(-1, -2));
-            k.addView(CodeRecu.activation(this), new LinearLayout.LayoutParams(-1, -2));
-            TextView renv = U.lien(this, "Tu n'as pas reçu le code ? <u>Renvoyer</u>");
-            renv.setOnClickListener(v -> renvoyer(renv));
-            k.addView(renv, new LinearLayout.LayoutParams(-1, -2));
             U.add(k, ok);
-            U.add(root, U.retour(this, "← Retour (changer d'e-mail)", () -> {
+            // La vidéo ne dépend pas du code : on peut la faire dès maintenant
+            root.addView(U.tv(this, "\nTu peux enregistrer ta vidéo dès maintenant, sans attendre le code." + (videoOk ? "\n✔ Ta vidéo est déjà envoyée." : ""), 14, false));
+            U.PBtn vb = U.inscription(this, videoOk ? "🎥 Refaire ma vidéo" : "🎥 Enregistrer ma vidéo");
+            vb.setOnClickListener(v -> startActivity(new Intent(this, VideoActivity.class)));
+            U.add(root, vb);
+            U.add(root, U.retour(this, "← Retour (changer de compte)", () -> {
                 U.setId(this, null);
                 startActivity(new Intent(this, InscriptionActivity.class));
                 finish();
             }));
-            otp.post(() -> otp.coller(this, false)); // code déjà copié depuis l'e-mail : saisie automatique
-        } else if (s.equals("attente_video")) {
-            root.addView(U.tv(this, "\nPour activer ton compte, enregistre une vidéo de 20 secondes (filmée en direct).", 16, false));
-            U.PBtn vb = U.inscription(this, "Enregistrer ma vidéo");
-            vb.setOnClickListener(v -> startActivity(new Intent(this, VideoActivity.class)));
-            U.add(root, vb);
-        } else if (s.equals("attente_validation")) {
-            root.addView(U.tv(this, "\nTa vidéo a été envoyée. L'administrateur vérifie ton compte, reviens bientôt.", 16, false));
+            otp.post(() -> otp.coller(this, false)); // code déjà copié depuis WhatsApp : saisie automatique
         } else {
             root.addView(U.tv(this, "\nTon compte a été refusé par l'administrateur.", 16, false));
         }
         U.add(root, rafr);
-    }
-
-    void renvoyer(TextView lien) {
-        String id = U.id(this);
-        lien.setEnabled(false);
-        Api.bg(() -> {
-            try {
-                Api.call("POST", "/functions/v1/envoyer-code", "{\"membre_id\":\"" + id + "\"}", null);
-                U.toast(this, "Code renvoyé par e-mail.");
-            } catch (Exception e) {
-                String msg = "Envoi impossible, réessaie.";
-                try { msg = new JSONObject(e.getMessage()).optString("erreur", msg); } catch (Exception ignore) { }
-                U.toast(this, msg);
-            }
-            runOnUiThread(() -> lien.postDelayed(() -> lien.setEnabled(true), 30000));
-        });
-    }
-
-    void ouvrirMessagerie() {
-        try {
-            startActivity(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_EMAIL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Exception e) { U.toast(this, "Aucune application de messagerie trouvée."); }
+        LinearLayout bar = new LinearLayout(this);
+        U.PBtn prm = U.btn(this, "⚙ Paramètres"), out = U.btn(this, "Déconnexion");
+        prm.setOnClickListener(v -> startActivity(new Intent(this, ParametresActivity.class)));
+        out.setOnClickListener(v -> U.deconnecter(this));
+        bar.addView(prm, new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(out, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(bar, new LinearLayout.LayoutParams(-1, -2));
     }
 
     void valider(String code, U.PBtn ok) {
-        if (code.isEmpty()) { U.toast(this, "Entre le code reçu par e-mail."); return; }
+        if (code.length() != 6) { U.erreur(this, "Entre le code à 6 chiffres reçu sur WhatsApp."); return; }
         String id = U.id(this);
         ok.start("Vérification");
         Api.bg(() -> {
@@ -132,10 +112,13 @@ public class MainActivity extends Activity {
                 JSONObject o = new JSONObject();
                 o.put("p_id", id);
                 o.put("p_code", code);
-                String r = Api.call("POST", "/rest/v1/rpc/verifier_code", o.toString(), null);
+                String r = Api.call("POST", "/rest/v1/rpc/verifier_code_whatsapp", o.toString(), null);
                 if (r.trim().equals("true")) runOnUiThread(() -> ok.succes(this::charger));
-                else { U.toast(this, "Code incorrect ou expiré."); runOnUiThread(() -> { ok.stop(); if (otp != null) otp.vider(); }); }
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); runOnUiThread(ok::stop); }
+                else {
+                    U.erreur(this, "Code incorrect, expiré ou bloqué après 5 essais. Demande un nouveau code à l'administrateur.");
+                    runOnUiThread(() -> { ok.stop(); if (otp != null) otp.vider(); });
+                }
+            } catch (Exception e) { U.erreur(this, "Erreur : " + U.msg(e, "réseau.")); runOnUiThread(ok::stop); }
         });
     }
 }

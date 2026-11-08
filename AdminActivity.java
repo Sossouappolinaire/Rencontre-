@@ -1,10 +1,18 @@
 package bj.rencontre;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
@@ -45,18 +53,20 @@ public class AdminActivity extends Activity {
                     o.put("p_mdp", mdp.getText().toString());
                     String r = Api.call("POST", "/rest/v1/rpc/admin_login", o.toString(), null);
                     if (r.trim().equals("true")) runOnUiThread(() -> ok.succes(this::tableau));
-                    else { U.toast(this, "Identifiants incorrects."); runOnUiThread(ok::stop); }
-                } catch (Exception e) { U.toast(this, "Erreur réseau."); runOnUiThread(ok::stop); }
+                    else { U.erreur(this, "Identifiants incorrects."); runOnUiThread(ok::stop); }
+                } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); runOnUiThread(ok::stop); }
             });
         });
         U.add(root, idf); U.add(root, mdp);
         U.add(root, ok);
+        U.add(root, U.accueil(this));
         U.add(root, U.retour(this));
     }
 
     void tableau() {
         root.removeAllViews();
         root.addView(U.tv(this, "Panneau administrateur", 20, true));
+        U.add(root, U.accueil(this));
         U.add(root, U.retour(this));
         LinearLayout bar = new LinearLayout(this);
         Button b2 = U.btn(this, "Validations"), b3 = U.btn(this, "Discussions"),
@@ -126,30 +136,152 @@ public class AdminActivity extends Activity {
     void validations() {
         Api.bg(() -> {
             try {
-                String r = Api.call("POST", "/rest/v1/rpc/admin_validations", creds().toString(), null);
-                JSONArray a = new JSONArray(r);
-                afficher(a, "Aucun compte à valider.", o -> {
-                    String id = o.optString("id"), vid = o.optString("video_url");
-                    return carte(U.b64(o.optString("photo_url")), o.optString("prenom") + " " + o.optString("nom"),
-                            o.optString("pays") + " · " + o.optString("sexe"),
-                            new String[]{"▶ Vidéo", "✔ Activer", "✖ Refuser"},
-                            new Runnable[]{
-                                    () -> startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(vid), "video/mp4")),
-                                    () -> statut(id, "actif"),
-                                    () -> statut(id, "refuse")});
+                JSONArray codes = new JSONArray(Api.call("POST", "/rest/v1/rpc/admin_a_valider", creds().toString(), null));
+                JSONArray videos = new JSONArray(Api.call("POST", "/rest/v1/rpc/admin_videos", creds().toString(), null));
+                runOnUiThread(() -> {
+                    zone.removeAllViews();
+                    zone.addView(U.tv(this, "\nComptes à valider (code envoyé par WhatsApp) : " + codes.length(), 16, true));
+                    if (codes.length() == 0) zone.addView(U.tv(this, "Aucun compte en attente.", 14, false));
+                    for (int i = 0; i < codes.length(); i++) {
+                        JSONObject o = codes.optJSONObject(i);
+                        String id = o.optString("id"), nom = o.optString("prenom") + " " + o.optString("nom");
+                        boolean envoye = o.optString("statut").equals("code_envoye");
+                        zone.addView(carte(U.b64(o.optString("photo_url")), nom,
+                                o.optString("pays") + " · " + o.optString("sexe")
+                                        + (envoye ? "\n💬 code envoyé, en attente de saisie" : "\n⏳ à valider"),
+                                new String[]{envoye ? "↻ Renvoyer le code" : "✔ Valider", "✖ Refuser"},
+                                new Runnable[]{() -> envoyerCode(id), () -> refuser(id, nom)}));
+                    }
+                    zone.addView(U.tv(this, "\nVidéos reçues : " + videos.length(), 16, true));
+                    zone.addView(U.tv(this, "Quand tu ouvres une vidéo, elle est enregistrée sur ton téléphone puis supprimée automatiquement du serveur.", 12, false));
+                    if (videos.length() == 0) zone.addView(U.tv(this, "Aucune vidéo en attente.", 14, false));
+                    for (int i = 0; i < videos.length(); i++) {
+                        JSONObject o = videos.optJSONObject(i);
+                        String id = o.optString("id"), nom = o.optString("prenom") + " " + o.optString("nom");
+                        zone.addView(carte(U.b64(o.optString("photo_url")), nom,
+                                o.optString("pays") + " · " + o.optString("sexe"),
+                                new String[]{"▶ Voir la vidéo"},
+                                new Runnable[]{() -> lireVideo(id, nom)}));
+                    }
                 });
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+            } catch (Exception e) { U.erreur(this, "Erreur : " + U.msg(e, "réseau.")); }
         });
+    }
+
+    /**
+     * Télécharge la vidéo, l'enregistre sur le téléphone de l'administrateur, puis la supprime du serveur
+     * (fichier + lien en base) et la lit. Si l'enregistrement sur le téléphone échoue, rien n'est supprimé.
+     */
+    void lireVideo(String id, String nom) {
+        U.toast(this, "Téléchargement de la vidéo…");
+        Api.bg(() -> {
+            Uri local;
+            try {
+                String fichier = nom.replaceAll("[^A-Za-z0-9]+", "_") + "_" + System.currentTimeMillis() + ".mp4";
+                local = sauvegarder(Config.URL + "/storage/v1/object/public/videos/" + id + ".mp4", fichier);
+            } catch (Exception e) {
+                U.erreur(this, "La vidéo n'a pas pu être enregistrée sur ton téléphone (elle reste sur le serveur) :\n" + U.msg(e, "erreur inconnue."));
+                return;
+            }
+            String avert = null;
+            try {
+                Api.call("DELETE", "/storage/v1/object/videos/" + id + ".mp4", null, null);
+                Api.call("POST", "/rest/v1/rpc/admin_video_recue", creds().put("p_id", id).toString(), null);
+            } catch (Exception e) { avert = U.msg(e, "erreur inconnue."); }
+            final String av = avert;
+            validations();
+            runOnUiThread(() -> startActivity(new Intent(this, LecteurActivity.class)
+                    .putExtra("uri", local.toString()).putExtra("titre", nom)));
+            if (av != null) U.erreur(this, "La vidéo est enregistrée sur ton téléphone, mais n'a pas pu être supprimée du serveur :\n" + av);
+        });
+    }
+
+    /** Android 10+ : dossier Films/LylyDating (visible dans la galerie). Android 7 à 9 : dossier Films de l'application. */
+    Uri sauvegarder(String url, String nom) throws Exception {
+        if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Video.Media.DISPLAY_NAME, nom);
+            cv.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+            cv.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/LylyDating");
+            cv.put(MediaStore.Video.Media.IS_PENDING, 1);
+            Uri u = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv);
+            if (u == null) throw new IOException("Stockage du téléphone indisponible.");
+            try (OutputStream o = getContentResolver().openOutputStream(u)) {
+                Api.download(url, o);
+            } catch (Exception e) {
+                getContentResolver().delete(u, null, null);
+                throw e;
+            }
+            ContentValues fin = new ContentValues();
+            fin.put(MediaStore.Video.Media.IS_PENDING, 0);
+            getContentResolver().update(u, fin, null, null);
+            return u;
+        }
+        File dir = getExternalFilesDir(Environment.DIRECTORY_MOVIES);
+        if (dir == null) throw new IOException("Stockage du téléphone indisponible.");
+        dir.mkdirs();
+        File f = new File(dir, nom);
+        try (OutputStream o = new FileOutputStream(f)) {
+            Api.download(url, o);
+        } catch (Exception e) {
+            f.delete();
+            throw e;
+        }
+        return Uri.fromFile(f);
+    }
+
+    /** Génère le code côté serveur puis ouvre WhatsApp sur le numéro du membre avec le message prêt à envoyer. */
+    void envoyerCode(String id) {
+        Api.bg(() -> {
+            try {
+                String r = Api.call("POST", "/rest/v1/rpc/admin_valider_code", creds().put("p_id", id).toString(), null).trim();
+                if (r.isEmpty() || r.equals("null")) {
+                    U.erreur(this, "Action refusée : compte déjà traité ou accès administrateur refusé.");
+                    validations();
+                    return;
+                }
+                JSONObject o = new JSONObject(r);
+                String code = o.optString("code"), prenom = o.optString("prenom");
+                String num = o.optString("whatsapp").replaceAll("[^0-9]", "");
+                validations();
+                if (num.isEmpty()) {
+                    U.erreur(this, "Numéro WhatsApp introuvable pour ce membre. Code à lui transmettre : " + code);
+                    return;
+                }
+                String msg = "Bonjour " + prenom + " 💞, ton compte Lyly Dating est validé ✅.\n"
+                        + "Ton code d'activation : " + code + "\n"
+                        + "Ouvre l'application et saisis ce code pour que ton compte soit opérationnel.";
+                Uri u = Uri.parse("https://wa.me/" + num + "?text=" + Uri.encode(msg));
+                runOnUiThread(() -> {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, u)); }
+                    catch (Exception e) { U.erreur(this, "WhatsApp indisponible sur ce téléphone. Code à transmettre à " + prenom + " : " + code); }
+                });
+            } catch (Exception e) { U.erreur(this, "Erreur : " + U.msg(e, "réseau.")); }
+        });
+    }
+
+    void refuser(String id, String nom) {
+        runOnUiThread(() -> new android.app.AlertDialog.Builder(this)
+                .setTitle("Refuser ce compte ?")
+                .setMessage(nom + " ne pourra plus utiliser l'application.")
+                .setPositiveButton("Refuser", (d, w) -> Api.bg(() -> {
+                    try {
+                        if (actionMembre("admin_rejeter", id)) U.toast(this, "Compte refusé.");
+                        else U.erreur(this, "Action impossible.");
+                    } catch (Exception e) { U.erreur(this, "Erreur : " + U.msg(e, "réseau.")); }
+                    validations();
+                }))
+                .setNegativeButton("Annuler", null).show());
     }
 
     void statut(String id, String s) {
         Api.bg(() -> {
             try {
                 String r = Api.call("POST", "/rest/v1/rpc/admin_statut", creds().put("p_id", id).put("p_statut", s).toString(), null);
-                if (!r.trim().equals("true")) { U.toast(this, "Action refusée (compte déjà traité ?)."); validations(); return; }
+                if (!r.trim().equals("true")) { U.erreur(this, "Action refusée (compte déjà traité ?)."); validations(); return; }
                 validations();
                 if (s.equals("actif")) whatsappMembre(id, "Bonjour %s 💞, ton compte Lyly Dating est confirmé et activé ✅. Tu peux maintenant découvrir les profils.");
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+            } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); }
         });
     }
 
@@ -158,19 +290,20 @@ public class AdminActivity extends Activity {
         try {
             JSONObject r = new JSONObject(Api.call("POST", "/rest/v1/rpc/admin_whatsapp", creds().put("p_id", id).toString(), null));
             String num = r.optString("whatsapp").replaceAll("[^0-9]", "");
-            if (num.isEmpty()) { U.toast(this, "Numéro WhatsApp introuvable."); return; }
+            if (num.isEmpty()) { U.erreur(this, "Numéro WhatsApp introuvable."); return; }
             String msg = String.format(modele, r.optString("prenom"));
             Uri u = Uri.parse("https://wa.me/" + num + "?text=" + Uri.encode(msg));
             runOnUiThread(() -> {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); }
-                catch (Exception e) { U.toast(this, "WhatsApp indisponible."); }
+                catch (Exception e) { U.erreur(this, "WhatsApp indisponible."); }
             });
-        } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+        } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); }
     }
 
     String libelleStatut(String s) {
         switch (s) {
-            case "demande_code": case "code_envoye": return "📧 e-mail à confirmer";
+            case "demande_code": return "⏳ à valider (code WhatsApp)";
+            case "code_envoye": return "💬 code envoyé, en attente de saisie";
             case "attente_video": return "🎥 vidéo à envoyer";
             case "attente_validation": return "⏳ à valider";
             case "actif": return "✅ actif";
@@ -198,7 +331,7 @@ public class AdminActivity extends Activity {
                             new Runnable[]{() -> startActivity(new Intent(this, ChatActivity.class)
                                     .putExtra("cid", cid).putExtra("titre", nA + " ↔ " + nB).putExtra("ro", true))});
                 });
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+            } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); }
         });
     }
 
@@ -228,7 +361,7 @@ public class AdminActivity extends Activity {
                     rf.setOnClickListener(v -> enLigne());
                     U.add(zone, rf);
                 });
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+            } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); }
         });
     }
 
@@ -250,8 +383,8 @@ public class AdminActivity extends Activity {
                         java.util.ArrayList<String> noms = new java.util.ArrayList<>();
                         java.util.ArrayList<Runnable> acts = new java.util.ArrayList<>();
                         if (st.equals("demande_code") || st.equals("code_envoye")) {
-                            noms.add("✔ Confirmer");
-                            acts.add(() -> confirmerEmail(id));
+                            noms.add(st.equals("code_envoye") ? "↻ Code" : "✔ Valider");
+                            acts.add(() -> envoyerCode(id));
                         }
                         noms.add("💬");
                         acts.add(() -> Api.bg(() -> whatsappMembre(id, "Bonjour %s 👋, c'est l'équipe Lyly Dating.")));
@@ -274,26 +407,15 @@ public class AdminActivity extends Activity {
                                 noms.toArray(new String[0]), acts.toArray(new Runnable[0])));
                     }
                 });
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+            } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); }
         });
     }
 
     void traiter(String fonction, String id, String ok) {
         try {
-            if (actionMembre(fonction, id)) U.toast(this, ok); else U.toast(this, "Action impossible.");
-        } catch (Exception e) { U.toast(this, "Erreur réseau."); }
+            if (actionMembre(fonction, id)) U.toast(this, ok); else U.erreur(this, "Action impossible.");
+        } catch (Exception e) { U.erreur(this, "Erreur réseau. Vérifie ta connexion puis réessaie."); }
         membres();
-    }
-
-    /** Confirme le compte sans passer par le code e-mail, puis prévient la personne sur WhatsApp. */
-    void confirmerEmail(String id) {
-        Api.bg(() -> {
-            try {
-                if (!actionMembre("admin_confirmer_email", id)) { U.toast(this, "Action impossible."); membres(); return; }
-                membres();
-                whatsappMembre(id, "Bonjour %s 👋, ton compte Lyly Dating est confirmé ✅. Ouvre l'application pour continuer ton inscription (prochaine étape : ta vidéo).");
-            } catch (Exception e) { U.toast(this, "Erreur réseau."); }
-        });
     }
 
     // ---------- Canal Telegram ----------
@@ -342,11 +464,11 @@ public class AdminActivity extends Activity {
                 Api.bg(() -> {
                     try {
                         String t = tok.getText().toString().trim();
-                        if (t.isEmpty()) { U.toast(this, "Colle le token du bot."); runOnUiThread(sv::stop); return; }
+                        if (t.isEmpty()) { U.erreur(this, "Colle le token du bot."); runOnUiThread(sv::stop); return; }
                         tgToken(t);
                         U.toast(this, "Bot enregistré, lecture des messages activée.");
                         runOnUiThread(() -> { tok.setText(""); sv.succes(null); });
-                    } catch (Exception e) { U.toast(this, err(e, "Erreur réseau.")); runOnUiThread(sv::stop); }
+                    } catch (Exception e) { U.erreur(this, err(e, "Erreur réseau.")); runOnUiThread(sv::stop); }
                 });
             });
             aj.setOnClickListener(v -> {
@@ -358,7 +480,7 @@ public class AdminActivity extends Activity {
                         tg("ajouter", c);
                         runOnUiThread(() -> { can.setText(""); aj.succes(null); });
                         chats(liste);
-                    } catch (Exception e) { U.toast(this, err(e, "Erreur réseau.")); runOnUiThread(aj::stop); }
+                    } catch (Exception e) { U.erreur(this, err(e, "Erreur réseau.")); runOnUiThread(aj::stop); }
                 });
             });
         });
@@ -381,14 +503,14 @@ public class AdminActivity extends Activity {
                         liste.addView(c);
                     }
                 });
-            } catch (Exception e) { U.toast(this, err(e, "Erreur réseau.")); }
+            } catch (Exception e) { U.erreur(this, err(e, "Erreur réseau.")); }
         });
     }
 
     void retirer(String id, LinearLayout liste) {
         Api.bg(() -> {
             try { tg("supprimer", id); chats(liste); }
-            catch (Exception e) { U.toast(this, err(e, "Erreur réseau.")); }
+            catch (Exception e) { U.erreur(this, err(e, "Erreur réseau.")); }
         });
     }
 
@@ -410,7 +532,7 @@ public class AdminActivity extends Activity {
                         zone.addView(U.tv(this, o.optString("texte"), 14, false));
                     }
                 });
-            } catch (Exception e) { U.toast(this, err(e, "Erreur réseau.")); }
+            } catch (Exception e) { U.erreur(this, err(e, "Erreur réseau.")); }
         });
     }
 
@@ -448,7 +570,7 @@ public class AdminActivity extends Activity {
         try { c = Integer.parseInt(code.getText().toString().trim()); } catch (Exception e) { c = 0; }
         final int vc = c;
         final String vn = nom.getText().toString().trim();
-        if (vc <= 0 || vn.isEmpty() || apk == null) { U.toast(this, "Numéro, nom et fichier .apk sont obligatoires."); return; }
+        if (vc <= 0 || vn.isEmpty() || apk == null) { U.erreur(this, "Numéro, nom et fichier .apk sont obligatoires."); return; }
         final byte[] data = apk;
         pub.start("Envoi");
         Api.bg(() -> {
@@ -468,7 +590,7 @@ public class AdminActivity extends Activity {
                 U.toast(this, "Version " + vn + " publiée.");
                 runOnUiThread(() -> pub.succes(this::version));
             } catch (Exception e) {
-                U.toast(this, err(e, "Échec : numéro déjà utilisé ou envoi impossible."));
+                U.erreur(this, err(e, "Échec : numéro déjà utilisé ou envoi impossible."));
                 runOnUiThread(pub::stop);
             }
         });
@@ -484,7 +606,7 @@ public class AdminActivity extends Activity {
                 while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
                 apk = out.toByteArray();
                 if (apkNom != null) apkNom.setText("✔ " + (apk.length / 1048576.0) + " Mo prêts à publier");
-            } catch (Exception e) { U.toast(this, "Fichier illisible."); }
+            } catch (Exception e) { U.erreur(this, "Fichier illisible."); }
         }
     }
 }

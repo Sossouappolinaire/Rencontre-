@@ -43,6 +43,13 @@ public class ParametresActivity extends Activity {
         setContentView(sv);
         root.addView(U.tv(this, "⚙ Paramètres", 22, true));
         U.add(root, U.retour(this));
+        root.addView(U.tv(this, "\nMon compte", 16, true));
+        U.PBtn vid = U.inscription(this, "🎥 Ma vidéo de vérification");
+        vid.setOnClickListener(v -> startActivity(new Intent(this, VideoActivity.class)));
+        U.add(root, vid);
+        U.PBtn out = U.btn(this, "Déconnexion");
+        out.setOnClickListener(v -> U.deconnecter(this));
+        U.add(root, out);
         root.addView(U.tv(this, "\nMise à jour de l'application", 16, true));
         zone = new LinearLayout(this);
         zone.setOrientation(LinearLayout.VERTICAL);

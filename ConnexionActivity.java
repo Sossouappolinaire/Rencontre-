@@ -20,7 +20,11 @@ public class ConnexionActivity extends Activity {
         root = U.col(this);
         sv.addView(root);
         setContentView(sv);
+        String e0 = getIntent().getStringExtra("email");
+        if (e0 != null) email = e0;
         etapeConnexion();
+        if (getIntent().getBooleanExtra("nouveau", false))
+            U.dialogue(this, "Compte créé ✅", "Connecte-toi avec ton e-mail et ton mot de passe. L'administrateur validera ton compte et t'enverra un code sur WhatsApp.");
     }
 
     // ---------- Outils d'interface ----------
@@ -108,7 +112,7 @@ public class ConnexionActivity extends Activity {
         ok.setOnClickListener(v -> {
             email = em.getText().toString().trim();
             final String pw = mdp.getText().toString();
-            if (email.isEmpty() || pw.isEmpty()) { U.toast(this, "Entre ton e-mail et ton mot de passe."); return; }
+            if (email.isEmpty() || pw.isEmpty()) { U.erreur(this, "Entre ton e-mail et ton mot de passe."); return; }
             ok.start("Connexion");
             Api.bg(() -> {
                 // 1) Compte administrateur : reconnu uniquement s'il existe dans la table admins (identifiant avec ou sans « @ »)
@@ -123,7 +127,7 @@ public class ConnexionActivity extends Activity {
                     }
                 } catch (Exception ignore) { }
                 if (!email.contains("@")) {
-                    U.toast(this, "Identifiants incorrects.");
+                    U.erreur(this, "Identifiants incorrects.");
                     runOnUiThread(ok::stop);
                     return;
                 }
@@ -136,7 +140,7 @@ public class ConnexionActivity extends Activity {
                     final String id = r.replace("\"", "");
                     runOnUiThread(() -> ok.succes(() -> entrer(id)));
                 } catch (Exception e) {
-                    U.toast(this, msg(e, "Erreur réseau."));
+                    U.erreur(this, msg(e, "Erreur réseau."));
                     runOnUiThread(ok::stop);
                 }
             });
@@ -145,19 +149,20 @@ public class ConnexionActivity extends Activity {
         TextView oubli = lien("Mot de passe oublié ? <u>Recevoir un code</u>");
         oubli.setOnClickListener(v -> {
             email = em.getText().toString().trim();
-            if (!email.contains("@")) { U.toast(this, "Entre d'abord ton e-mail."); return; }
+            if (!email.contains("@")) { U.erreur(this, "Entre d'abord ton e-mail."); return; }
             oubli.setEnabled(false);
             Api.bg(() -> {
                 try {
                     Api.call("POST", "/functions/v1/envoyer-connexion", new JSONObject().put("email", email).toString(), null);
                     runOnUiThread(this::etapeCode);
                 } catch (Exception e) {
-                    U.toast(this, "Envoi impossible, réessaie.");
+                    U.erreur(this, "Envoi impossible, réessaie.");
                     runOnUiThread(() -> oubli.setEnabled(true));
                 }
             });
         });
         k.addView(oubli, new LinearLayout.LayoutParams(-1, -2));
+        U.add(root, U.accueil(this));
         U.add(root, U.retour(this));
     }
 
@@ -169,7 +174,7 @@ public class ConnexionActivity extends Activity {
             try {
                 Api.call("POST", "/functions/v1/envoyer-connexion", new JSONObject().put("email", email).toString(), null);
                 U.toast(this, "Nouveau code envoyé.");
-            } catch (Exception e) { U.toast(this, "Envoi impossible, réessaie."); }
+            } catch (Exception e) { U.erreur(this, "Envoi impossible, réessaie."); }
             runOnUiThread(() -> lien.postDelayed(() -> lien.setEnabled(true), 30000));
         });
     }
@@ -186,7 +191,7 @@ public class ConnexionActivity extends Activity {
         k.addView(otp, new LinearLayout.LayoutParams(-1, -2));
         Button coller = U.btn(this, "📋 Coller le code");
         coller.setTextSize(12);
-        coller.setOnClickListener(v -> { if (!otp.coller(this, true)) U.toast(this, "Aucun code à 6 chiffres copié."); });
+        coller.setOnClickListener(v -> { if (!otp.coller(this, true)) U.erreur(this, "Aucun code à 6 chiffres copié."); });
         LinearLayout ac = new LinearLayout(this);
         ac.setGravity(Gravity.CENTER);
         ac.setPadding(0, U.dp(this, 14), 0, 0);
@@ -201,7 +206,7 @@ public class ConnexionActivity extends Activity {
 
         ok.setOnClickListener(v -> {
             String code = otp.code().trim();
-            if (code.length() != 6) { U.toast(this, "Le code contient 6 chiffres."); return; }
+            if (code.length() != 6) { U.erreur(this, "Le code contient 6 chiffres."); return; }
             etapeNouveauMdp(code);
         });
         U.add(k, ok);
@@ -221,15 +226,15 @@ public class ConnexionActivity extends Activity {
         U.PBtn ok = U.valider(this, "Enregistrer");
         ok.setOnClickListener(v -> {
             final String pw = m1.getText().toString();
-            if (pw.length() < 8) { U.toast(this, "8 caractères minimum."); return; }
-            if (!pw.equals(m2.getText().toString())) { U.toast(this, "Les deux mots de passe sont différents."); return; }
+            if (pw.length() < 8) { U.erreur(this, "8 caractères minimum."); return; }
+            if (!pw.equals(m2.getText().toString())) { U.erreur(this, "Les deux mots de passe sont différents."); return; }
             ok.start("Enregistrement");
             Api.bg(() -> {
                 try {
                     String r = Api.call("POST", "/rest/v1/rpc/reinitialiser_mdp",
                             new JSONObject().put("p_email", email).put("p_code", code).put("p_mdp", pw).toString(), null).trim();
                     if (!r.equals("true")) {
-                        U.toast(this, "Code incorrect ou expiré.");
+                        U.erreur(this, "Code incorrect ou expiré.");
                         runOnUiThread(this::etapeCode);
                         return;
                     }
@@ -237,7 +242,7 @@ public class ConnexionActivity extends Activity {
                             new JSONObject().put("p_email", email).put("p_mdp", pw).toString(), null).trim().replace("\"", "");
                     runOnUiThread(() -> ok.succes(() -> entrer(id)));
                 } catch (Exception e) {
-                    U.toast(this, msg(e, "Erreur réseau."));
+                    U.erreur(this, msg(e, "Erreur réseau."));
                     runOnUiThread(ok::stop);
                 }
             });

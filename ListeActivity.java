@@ -49,6 +49,7 @@ public class ListeActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        moi = null; // recharge le profil (la vidéo a pu être ajoutée)
         Presence.start(me);
         charger();
         if (!LockActivity.pinDefini(this) && !getSharedPreferences("lock", 0).getBoolean("refuse", false)) {
@@ -63,7 +64,7 @@ public class ListeActivity extends Activity {
         Api.bg(() -> {
             try {
                 if (moi == null)
-                    moi = new JSONArray(Api.get("/rest/v1/membres?id=eq." + me + "&select=pays,pays_code,sexe,cherche")).getJSONObject(0);
+                    moi = new JSONArray(Api.get("/rest/v1/membres?id=eq." + me + "&select=pays,pays_code,sexe,cherche,video_ok")).getJSONObject(0);
                 int n = new JSONArray(Api.get("/rest/v1/couples_public?select=id")).length();
                 String t = "💑 " + n + " couple(s) formé(s)   " + U.drapeau(moi.getString("pays_code")) + " " + moi.getString("pays");
                 runOnUiThread(() -> couples.setText(t));
@@ -73,6 +74,16 @@ public class ListeActivity extends Activity {
     }
 
     void membres() throws Exception {
+        if (!moi.optBoolean("video_ok")) {
+            runOnUiThread(() -> {
+                list.removeAllViews();
+                list.addView(U.tv(this, "\n🎥 Pour voir les membres de ton pays, enregistre d'abord ta vidéo de 20 secondes (filmée en direct).", 16, false));
+                U.PBtn vb = U.inscription(this, "Enregistrer ma vidéo");
+                vb.setOnClickListener(v -> startActivity(new Intent(this, VideoActivity.class)));
+                U.add(list, vb);
+            });
+            return;
+        }
         java.util.HashSet<String> enLigne = new java.util.HashSet<>();
         try {
             JSONArray on = new JSONArray(Api.get("/rest/v1/presence_publique?pays_code=eq." + moi.getString("pays_code") + "&en_ligne=eq.true&select=id"));

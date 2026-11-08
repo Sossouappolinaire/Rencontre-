@@ -279,6 +279,39 @@ public class U {
     }
     static PBtn retour(Activity a) { return retour(a, "← Retour", a::finish); }
 
+    /** Fenêtre modale (bouton OK) : à utiliser pour les erreurs à la place du Toast. Peut être appelée depuis n'importe quel thread. */
+    static void erreur(Activity a, String m) { dialogue(a, "Erreur", m); }
+
+    static void dialogue(Activity a, String titre, String m) {
+        a.runOnUiThread(() -> {
+            if (a.isFinishing() || a.isDestroyed()) return;
+            new android.app.AlertDialog.Builder(a).setTitle(titre).setMessage(m)
+                    .setPositiveButton("OK", null).show();
+        });
+    }
+
+    /** Message lisible tiré d'une réponse d'erreur Supabase (JSON), sinon le texte brut ou def. */
+    static String msg(Exception e, String def) {
+        String t = String.valueOf(e.getMessage());
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(t);
+            for (String k : new String[]{"erreur", "message", "error_description", "msg", "error"}) {
+                String v = o.optString(k, "");
+                if (!v.isEmpty()) return v;
+            }
+        } catch (Exception x) { }
+        return (t.isEmpty() || t.equals("null")) ? def : t;
+    }
+
+    /** Retour à l'accueil : MainActivity aiguille vers le bon écran (inscription, code, vidéo, liste…). */
+    static PBtn accueil(Activity a) {
+        return retour(a, "🏠 Retour à l'accueil", () -> {
+            a.startActivity(new android.content.Intent(a, MainActivity.class).addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP | android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            a.finish();
+        });
+    }
+
     static void add(LinearLayout l, View v) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, dp(l.getContext(), 6), 0, dp(l.getContext(), 6));

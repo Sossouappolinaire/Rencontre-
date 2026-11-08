@@ -128,20 +128,20 @@ public class InscriptionActivity extends Activity {
         String[] p = L.get(pays.getSelectedItemPosition());
         if (photo == null || nom.getText().toString().trim().isEmpty() || prenom.getText().toString().trim().isEmpty()
                 || !email.getText().toString().contains("@") || wa.getText().toString().trim().isEmpty()) {
-            U.toast(this, "Remplis tous les champs et ajoute ta photo.");
+            U.erreur(this, "Remplis tous les champs et ajoute ta photo.");
             return;
         }
         String num = Telephone.valider(this, wa.getText().toString(), p[0]);
         if (num == null) {
-            U.toast(this, "Numéro WhatsApp invalide pour " + p[1] + ". Exemple : " + Telephone.exemple(this, p[0]) + " (numéro mobile).");
+            U.erreur(this, "Numéro WhatsApp invalide pour " + p[1] + ". Exemple : " + Telephone.exemple(this, p[0]) + " (numéro mobile).");
             return;
         }
-        if (mdp.getText().toString().length() < 8) { U.toast(this, "Le mot de passe doit contenir 8 caractères minimum."); return; }
-        if (!mdp.getText().toString().equals(mdp2.getText().toString())) { U.toast(this, "Les deux mots de passe sont différents."); return; }
+        if (mdp.getText().toString().length() < 8) { U.erreur(this, "Le mot de passe doit contenir 8 caractères minimum."); return; }
+        if (!mdp.getText().toString().equals(mdp2.getText().toString())) { U.erreur(this, "Les deux mots de passe sont différents."); return; }
         int a = nombre(age), t = TAILLE_MIN + taille.getSelectedItemPosition() * TAILLE_PAS;
-        if (a < 18 || a > 99) { U.toast(this, "L'inscription est réservée aux personnes de 18 ans et plus."); return; }
-        if (profession.getText().toString().trim().isEmpty()) { U.toast(this, "Indique ta profession."); return; }
-        if (desc.getText().toString().trim().length() < 10) { U.toast(this, "Décris en quelques mots les qualités que tu recherches."); return; }
+        if (a < 18 || a > 99) { U.erreur(this, "L'inscription est réservée aux personnes de 18 ans et plus."); return; }
+        if (profession.getText().toString().trim().isEmpty()) { U.erreur(this, "Indique ta profession."); return; }
+        if (desc.getText().toString().trim().length() < 10) { U.erreur(this, "Décris en quelques mots les qualités que tu recherches."); return; }
         JSONObject o = new JSONObject();
         try {
             o.put("nom", nom.getText().toString().trim());
@@ -162,21 +162,16 @@ public class InscriptionActivity extends Activity {
         ok.start("Inscription");
         Api.bg(() -> {
             try {
-                JSONArray r = new JSONArray(Api.post("/rest/v1/membres?select=id", o.toString()));
-                String nid = r.getJSONObject(0).getString("id");
-                U.setId(this, nid);
-                boolean codePart = true;
-                try { Api.call("POST", "/functions/v1/envoyer-code", "{\"membre_id\":\"" + nid + "\"}", null); }
-                catch (Exception ex) { codePart = false; }
-                if (!codePart) U.toast(this, "Compte créé, mais l'e-mail n'a pas pu partir. Appuie sur « Renvoyer le code ».");
+                new JSONArray(Api.post("/rest/v1/membres?select=id", o.toString()));
+                final String mail = o.optString("email");
                 runOnUiThread(() -> ok.succes(() -> {
-                    startActivity(new Intent(this, MainActivity.class));
+                    startActivity(new Intent(this, ConnexionActivity.class).putExtra("email", mail).putExtra("nouveau", true));
                     finish();
                 }));
             } catch (Exception e) {
                 String m = String.valueOf(e.getMessage());
-                if (m.contains("membres_email_uq")) U.toast(this, "Cet e-mail est déjà inscrit. Appuie sur « J'ai déjà un compte » (mot de passe oublié ? tu peux recevoir un code).");
-                else U.toast(this, "Erreur : " + m);
+                if (m.contains("membres_email_uq")) U.erreur(this, "Cet e-mail est déjà inscrit. Appuie sur « J'ai déjà un compte » pour te connecter.");
+                else U.erreur(this, "Inscription impossible : " + U.msg(e, "erreur réseau, réessaie."));
                 runOnUiThread(ok::stop);
             }
         });
@@ -189,7 +184,7 @@ public class InscriptionActivity extends Activity {
                 android.graphics.Bitmap bm = U.decode(this, d.getData(), 400);
                 img.setImageBitmap(bm);
                 photo = U.enc(bm);
-            } catch (Exception e) { U.toast(this, "Photo illisible."); }
+            } catch (Exception e) { U.erreur(this, "Photo illisible."); }
         }
     }
 }
